@@ -93,7 +93,23 @@ main{padding:16px;max-width:880px;margin:0 auto;}
 .elev-wrap{padding:12px 16px;background:var(--surface);}
 .elev-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
 
-/* LEAFLET */
+/* CHECKPOINT TABLE */
+.cp-table-wrap{padding:10px 16px 14px;border-top:1px solid var(--border);}
+.cp-table-title{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
+.cp-table{width:100%;border-collapse:collapse;font-size:12px;}
+.cp-table th{text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;
+  padding:4px 6px;border-bottom:1px solid var(--border);font-weight:600;}
+.cp-table td{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle;}
+.cp-table tr:last-child td{border-bottom:none;}
+.cp-table .cp-name{color:var(--text);font-weight:500;}
+.cp-table .cp-km{color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;}
+.cp-time{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;}
+.cp-time.passed{color:#3fb950;}
+.cp-time.current{color:#e3b341;}
+.cp-time.waiting{color:var(--rock);}
+.cp-table tr.highlight td{background:rgba(255,255,255,0.03);}
+
+/* LEAFLET *//* LEAFLET */
 .leaflet-popup-content-wrapper{background:rgba(22,27,34,0.97);border:1px solid var(--border);color:var(--text);border-radius:8px;}
 .leaflet-popup-tip{background:rgba(22,27,34,0.97);}
 .leaflet-popup-content{margin:10px 14px;font-family:'Inter',sans-serif;font-size:13px;}
@@ -216,6 +232,7 @@ function renderAll(data){
   const c=document.getElementById("cardsContainer");
   if(c.querySelector("div[style*=\'80px\']")) c.innerHTML="";
   ATHLETES.forEach(a=>renderCard(a,data[a.doss]));
+  renderCPTable(data);
 }
 
 function renderCard(athlete,runner){
@@ -295,6 +312,83 @@ function renderCard(athlete,runner){
         <div class="elev-label">Profilo altimetrico · quota lungo il percorso</div>
         <div style="position:relative;height:200px;"><canvas id="chart-${athlete.doss}"></canvas></div>
       </div>
+    </div>`;
+}
+
+function renderCPTable(data){
+  // Crea/aggiorna la tabella checkpoint condivisa
+  let wrap = document.getElementById("cp-table-section");
+  if(!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "cp-table-section";
+    wrap.className = "cp-table-wrap";
+    // Inserisci dopo l'ultima card
+    document.getElementById("cardsContainer").after(wrap);
+  }
+
+  const athletes = ATHLETES;
+  const cpRows = CHECKPOINTS.filter(c => c.km > 0); // escludi partenza
+
+  // Costruisci mappa idpt->orario per ogni atleta
+  const times = {};
+  athletes.forEach(a => {
+    times[a.doss] = {};
+    const runner = data[a.doss];
+    if(!runner || !runner.passages) return;
+    runner.passages.forEach(p => {
+      if(p.ha) times[a.doss][p.idpt] = p.ha.slice(0,5);
+    });
+  });
+
+  // Km attuale stimato per ogni atleta
+  const kmNow = {};
+  athletes.forEach(a => { kmNow[a.doss] = estimateKm(data[a.doss]); });
+
+  const cols = athletes.map(a =>
+    `<th style="color:${a.color}">${a.name.split(" ")[0]}</th>`
+  ).join("");
+
+  const rows = cpRows.map(cp => {
+    const cells = athletes.map(a => {
+      const t = times[a.doss][cp.idpt];
+      const km = kmNow[a.doss];
+      if(t){
+        return `<td><span class="cp-time passed">${t}</span></td>`;
+      } else if(km >= cp.km - 0.5){
+        // Dovrebbe essere passato ma non registrato
+        return `<td><span class="cp-time waiting">—</span></td>`;
+      } else {
+        // Non ancora arrivato
+        const runner = data[a.doss];
+        const prevEntry = runner?.prev?.find(pv => pv.idpt === cp.idpt);
+        if(prevEntry?.h){
+          return `<td><span class="cp-time waiting" title="previsto">~${prevEntry.h.slice(0,5)}</span></td>`;
+        }
+        return `<td><span class="cp-time waiting">—</span></td>`;
+      }
+    }).join("");
+
+    return `<tr class="${cp.km % 2 === 0 ? 'highlight' : ''}">
+      <td class="cp-name">${cp.name}</td>
+      <td class="cp-km">${cp.km}</td>
+      ${cells}
+    </tr>`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <div class="cp-table-title">⏱ Passaggi ai checkpoint</div>
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Checkpoint</th>
+          <th>km</th>
+          ${cols}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:10px;color:var(--rock);margin-top:8px;">
+      Verde = passaggio reale · ~ora = previsione LiveTrail
     </div>`;
 }
 
