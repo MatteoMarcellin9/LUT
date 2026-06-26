@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUT 50K · Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+:root{--bg:#0a0f14;--surface:rgba(18,26,34,0.85);--border:rgba(255,255,255,0.09);--text:#e8eff6;--muted:#7a8fa0;--accent:#e8873a;--green:#4caf7d;--blue:#6ab0d4;--red:#e05a4e;--rock:#8fa3b0;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{color:var(--text);font-family:'Inter',sans-serif;font-size:14px;min-height:100vh;position:relative;}
+body::before{content:'';position:fixed;inset:0;background-image:url('/civetta.jpg');background-size:cover;background-position:center 30%;background-attachment:fixed;filter:brightness(0.18) saturate(0.5) sepia(0.3);z-index:0;}
+body::after{content:'';position:fixed;inset:0;background:linear-gradient(to bottom,rgba(10,15,20,0.55) 0%,rgba(10,15,20,0.2) 40%,rgba(10,15,20,0.6) 100%);z-index:0;}
+header,main{position:relative;z-index:1;}
+header{border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;background:rgba(8,13,18,0.92);backdrop-filter:blur(12px);z-index:100;}
+.logo{font-weight:900;font-size:20px;letter-spacing:-0.5px;color:var(--accent);}
+.logo span{color:var(--text);}
+.logo-sub{font-size:10px;color:var(--rock);font-family:'JetBrains Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:1px;}
+.header-actions{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.refresh-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:opacity 0.15s;display:flex;align-items:center;gap:6px;}
+.refresh-btn:hover{opacity:0.85;}.refresh-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.toggle-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+.toggle{width:32px;height:18px;background:rgba(255,255,255,0.12);border-radius:9px;position:relative;cursor:pointer;border:none;transition:background 0.2s;}
+.toggle.on{background:var(--accent);}
+.toggle::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:3px;left:3px;transition:left 0.2s;}
+.toggle.on::after{left:17px;}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+.status-dot.live{background:var(--green);box-shadow:0 0 6px var(--green);animation:pdot 2s infinite;}
+@keyframes pdot{0%,100%{opacity:1}50%{opacity:0.4}}
+main{padding:20px;max-width:1000px;margin:0 auto;}
+.cards-grid{display:grid;gap:16px;}
+
+/* CARD */
+.athlete-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;backdrop-filter:blur(10px);box-shadow:0 4px 24px rgba(0,0,0,0.4);transition:border-color 0.3s;}
+.athlete-card.finished{border-color:rgba(76,175,125,0.5);}
+.athlete-card.dnf{border-color:rgba(224,90,78,0.4);opacity:0.7;}
+.card-header{padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);}
+.card-bib{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;min-width:50px;}
+.card-name{font-weight:700;font-size:15px;flex:1;}
+.card-club{font-size:11px;color:var(--muted);margin-top:2px;}
+.race-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+.card-status{font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;white-space:nowrap;}
+.status-running{background:rgba(232,135,58,0.18);color:var(--accent);}
+.status-done{background:rgba(76,175,125,0.18);color:var(--green);}
+.status-dnf{background:rgba(224,90,78,0.18);color:var(--red);}
+.status-wait{background:rgba(122,143,160,0.18);color:var(--muted);}
+
+/* GPS row */
+.card-gps-row{padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:12px;}
+.gps-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+.gps-dot.active{background:var(--green);box-shadow:0 0 5px var(--green);animation:pdot 2s infinite;}
+.gps-text{flex:1;color:var(--muted);}
+.gps-text strong{color:var(--text);}
+.gps-coords{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--rock);}
+.btn-sm{font-size:11px;font-weight:600;color:var(--blue);text-decoration:none;padding:3px 8px;border:1px solid rgba(106,176,212,0.3);border-radius:4px;background:rgba(106,176,212,0.08);white-space:nowrap;cursor:pointer;}
+.btn-sm:hover{background:rgba(106,176,212,0.18);}
+
+/* MAP TOGGLE */
+.card-map-toggle-btn{
+  width:100%; padding:9px 16px;
+  background:transparent; border:none; border-bottom:1px solid var(--border);
+  color:var(--muted); font-size:12px; font-family:'Inter',sans-serif;
+  cursor:pointer; display:flex; align-items:center; gap:8px;
+  transition:background 0.15s; text-align:left;
+}
+.card-map-toggle-btn:hover{background:rgba(255,255,255,0.04); color:var(--text);}
+.card-map-toggle-btn .toggle-arrow{margin-left:auto; font-size:10px; transition:transform 0.2s;}
+.card-map-toggle-btn.open .toggle-arrow{transform:rotate(180deg);}
+.card-map-collapsible{display:none; border-bottom:1px solid var(--border);}
+.card-map-collapsible.open{display:block;}
+.card-map{height:280px; width:100%; background:#0d1a24;}
+
+/* ELEVATION */
+.card-elevation{padding:14px 16px;}
+.elevation-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+.elevation-chart-wrap{height:200px;position:relative;}
+
+/* PROGRESS */
+.card-progress{padding:12px 16px;border-top:1px solid var(--border);}
+.progress-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;justify-content:space-between;}
+.progress-label strong{color:var(--text);font-weight:600;}
+.progress-bar-wrap{background:rgba(255,255,255,0.08);border-radius:4px;height:5px;overflow:hidden;}
+.progress-bar{height:5px;border-radius:4px;background:var(--accent);transition:width 0.6s ease;}
+.progress-bar.done{background:var(--green);}
+
+/* SPLITS */
+.card-splits{padding:12px 16px 14px;}
+.splits-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+.splits-timeline{display:flex;align-items:flex-start;overflow-x:auto;padding-bottom:4px;}
+.split-item{display:flex;flex-direction:column;align-items:center;flex:1;min-width:64px;position:relative;}
+.split-item:not(:last-child)::after{content:'';position:absolute;top:10px;left:50%;width:100%;height:2px;background:rgba(255,255,255,0.08);z-index:0;}
+.split-item.done:not(:last-child)::after{background:var(--accent);opacity:0.6;}
+.split-dot{width:20px;height:20px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);background:rgba(10,15,20,0.6);z-index:1;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;margin-bottom:6px;}
+.split-dot.done{border-color:var(--accent);background:var(--accent);color:#fff;}
+.split-dot.finish.done{border-color:var(--green);background:var(--green);}
+.split-dot.current{border-color:var(--accent);background:rgba(10,15,20,0.8);color:var(--accent);animation:pdot 1.5s infinite;}
+.split-label{font-size:10px;color:var(--muted);text-align:center;line-height:1.3;}
+.split-time{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:var(--accent);text-align:center;margin-top:2px;}
+.split-item.done .split-label{color:var(--text);}
+.card-stats{padding:0 16px 14px;display:flex;gap:20px;flex-wrap:wrap;}
+.stat{display:flex;flex-direction:column;gap:2px;}
+.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;}
+.stat-value{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;}
+.stat-value.hi{color:var(--accent);}
+.last-update{text-align:center;font-size:11px;color:var(--muted);margin-top:20px;padding-bottom:40px;font-family:'JetBrains Mono',monospace;}
+@keyframes spin{to{transform:rotate(360deg);}}
+/* TIMER */
+.card-timer{padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.02);}
+.timer-icon{font-size:14px;}
+.timer-text{flex:1;font-size:12px;color:var(--muted);}
+.timer-value{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--text);}
+.timer-value.running{color:var(--accent);}
+.timer-value.finished{color:var(--green);}
+
+.spinning{display:inline-block;animation:spin 0.8s linear infinite;}
+
+/* Leaflet dark overrides */
+.leaflet-container{background:#0d1a24;}
+.leaflet-popup-content-wrapper{background:rgba(18,26,34,0.95);border:1px solid rgba(255,255,255,0.15);color:var(--text);border-radius:8px;}
+.leaflet-popup-tip{background:rgba(18,26,34,0.95);}
+.leaflet-popup-content{margin:10px 14px;font-family:'Inter',sans-serif;font-size:13px;}
+.cp-tooltip{background:rgba(18,26,34,0.92)!important;border:1px solid rgba(255,255,255,0.2)!important;color:#e8eff6!important;font-family:'Inter',sans-serif!important;font-size:11px!important;font-weight:600!important;padding:3px 8px!important;border-radius:4px!important;box-shadow:0 2px 8px rgba(0,0,0,0.5)!important;}
+.cp-tooltip::before{display:none!important;}
+.popup-bib{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;}
+.popup-row{font-size:12px;color:var(--muted);margin-top:3px;}
+.popup-row strong{color:var(--text);}
+
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="logo">LUT<span> '26</span></div>
+    <div class="logo-sub">Lavaredo 50K · Cortina d'Ampezzo</div>
+  </div>
+  <div class="header-actions">
+    <div class="toggle-wrap">
+      <button class="toggle" id="autoToggle" onclick="toggleAuto()"></button>
+      <span id="autoLabel">Auto</span>
+    </div>
+    <div class="status-dot" id="statusDot"></div>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">
+      <span id="refreshIcon">↻</span> Aggiorna
+    </button>
+  </div>
+</header>
+<main>
+  <div class="cards-grid" id="cardsContainer">
+    <div style="text-align:center;padding:80px 20px;color:var(--muted)">
+      <div style="font-size:48px;margin-bottom:16px">⛰️</div>
+      <div style="font-size:17px;color:var(--text);font-weight:600;margin-bottom:8px">Lavaredo 50K · Tracker</div>
+      <div style="color:var(--rock)">Premi Aggiorna per caricare posizioni e dati live</div>
+    </div>
+  </div>
+  <div class="last-update" id="lastUpdate"></div>
+</main>
+
+<script>
+const RACE_START = new Date("2026-06-26T08:00:00+02:00");
+const TOTAL_KM = 48.79;
+
+const ATHLETES = [
+  { name:"Sergio Marcellin",  doss:"4310", color:"#e8873a", initials:"SM" },
+  { name:"Seraina Rizzardini", doss:"4740", color:"#6ab0d4", initials:"SR" },
+  { name:"Fabio Perencin",    doss:"4873", color:"#4caf7d", initials:"FP" },
+];
+
+// Checkpoint ufficiali con km, altitudine, coordinate (da LiveTrail)
+const CHECKPOINTS = [
+  { name:"Cortina",        idpt:"0",   km:0.0,   ele:1214, lat:46.53745, lng:12.13700 },
+  { name:"Val Travenanzes",idpt:"22",  km:11.12, ele:1533, lat:46.58605, lng:12.08304 },
+  { name:"Col Gallina",    idpt:"24",  km:24.45, ele:2058, lat:46.51958, lng:12.01703 },
+  { name:"Passo Giau",     idpt:"28",  km:31.90, ele:2246, lat:46.48252, lng:12.05381 },
+  { name:"Croda da Lago",  idpt:"32",  km:39.51, ele:2053, lat:46.48646, lng:12.10585 },
+  { name:"Mortisa",        idpt:"34",  km:46.79, ele:1256, lat:46.53060, lng:12.12792 },
+  { name:"Arrivo",         idpt:"100", km:48.79, ele:1221, lat:46.53749, lng:12.13698 },
+];
+
+const GPX = [[46.53745,12.137,1214,0],[46.53804,12.13578,1219,167],[46.53862,12.13456,1224,333],[46.53921,12.13333,1228,500],[46.53979,12.13211,1233,667],[46.54038,12.13089,1238,833],[46.54097,12.12967,1243,1000],[46.54155,12.12844,1247,1167],[46.54214,12.12722,1252,1333],[46.54273,12.126,1257,1500],[46.54331,12.12478,1262,1667],[46.5439,12.12356,1267,1833],[46.54448,12.12233,1271,2000],[46.54507,12.12111,1276,2167],[46.54566,12.11989,1281,2333],[46.54624,12.11867,1286,2500],[46.54683,12.11744,1290,2667],[46.54741,12.11622,1295,2833],[46.548,12.115,1300,3000],[46.54867,12.11419,1306,3167],[46.54933,12.11338,1311,3333],[46.55,12.11257,1317,3500],[46.55067,12.11176,1323,3667],[46.55133,12.11095,1329,3833],[46.552,12.11014,1334,4000],[46.55267,12.10933,1340,4167],[46.55333,12.10852,1346,4333],[46.554,12.10771,1351,4500],[46.55467,12.1069,1357,4667],[46.55533,12.1061,1363,4833],[46.556,12.10529,1369,5000],[46.55667,12.10448,1374,5167],[46.55733,12.10367,1380,5333],[46.558,12.10286,1386,5500],[46.55867,12.10205,1391,5667],[46.55933,12.10124,1397,5833],[46.56,12.10043,1403,6000],[46.56067,12.09962,1409,6167],[46.56133,12.09881,1414,6333],[46.562,12.098,1420,6500],[46.56287,12.09733,1425,6667],[46.56373,12.09667,1429,6833],[46.5646,12.096,1434,7000],[46.56547,12.09533,1439,7167],[46.56633,12.09467,1443,7333],[46.5672,12.094,1448,7500],[46.56807,12.09333,1453,7667],[46.56893,12.09267,1457,7833],[46.5698,12.092,1462,8000],[46.57067,12.09133,1467,8167],[46.57153,12.09067,1471,8333],[46.5724,12.09,1476,8500],[46.57327,12.08933,1481,8667],[46.57413,12.08867,1485,8833],[46.575,12.088,1490,9000],[46.57585,12.08762,1493,9163],[46.5767,12.08724,1497,9326],[46.57755,12.08686,1500,9489],[46.5784,12.08647,1503,9652],[46.57925,12.08609,1507,9815],[46.5801,12.08571,1510,9978],[46.58095,12.08533,1513,10142],[46.5818,12.08495,1516,10305],[46.58265,12.08457,1520,10468],[46.5835,12.08418,1523,10631],[46.58435,12.0838,1526,10794],[46.5852,12.08342,1530,10957],[46.58605,12.08304,1533,11120],[46.58525,12.08214,1544,11289],[46.58445,12.08124,1555,11458],[46.58364,12.08033,1566,11627],[46.58284,12.07943,1576,11796],[46.58204,12.07853,1587,11965],[46.58123,12.07763,1598,12134],[46.58043,12.07673,1609,12303],[46.57963,12.07582,1620,12472],[46.57883,12.07492,1631,12641],[46.57802,12.07402,1642,12810],[46.57722,12.07312,1652,12979],[46.57642,12.07222,1663,13148],[46.57562,12.07131,1674,13317],[46.57482,12.07041,1685,13486],[46.57401,12.06951,1696,13655],[46.57321,12.06861,1707,13824],[46.57241,12.06771,1717,13993],[46.5716,12.0668,1728,14162],[46.5708,12.0659,1739,14331],[46.57,12.065,1750,14500],[46.56914,12.06419,1761,14667],[46.56829,12.06338,1772,14833],[46.56743,12.06257,1783,15000],[46.56657,12.06176,1794,15167],[46.56571,12.06095,1805,15333],[46.56486,12.06014,1816,15500],[46.564,12.05933,1827,15667],[46.56314,12.05852,1838,15833],[46.56229,12.05771,1849,16000],[46.56143,12.0569,1860,16167],[46.56057,12.0561,1870,16333],[46.55971,12.05529,1881,16500],[46.55886,12.05448,1892,16667],[46.558,12.05367,1903,16833],[46.55714,12.05286,1914,17000],[46.55629,12.05205,1925,17167],[46.55543,12.05124,1936,17333],[46.55457,12.05043,1947,17500],[46.55371,12.04962,1958,17667],[46.55286,12.04881,1969,17833],[46.552,12.048,1980,18000],[46.55122,12.04711,1987,18167],[46.55044,12.04622,1993,18333],[46.54967,12.04533,2000,18500],[46.54889,12.04444,2007,18667],[46.54811,12.04356,2013,18833],[46.54733,12.04267,2020,19000],[46.54656,12.04178,2027,19167],[46.54578,12.04089,2033,19333],[46.545,12.04,2040,19500],[46.54422,12.03911,2047,19667],[46.54344,12.03822,2053,19833],[46.54267,12.03733,2060,20000],[46.54189,12.03644,2067,20167],[46.54111,12.03556,2073,20333],[46.54033,12.03467,2080,20500],[46.53956,12.03378,2087,20667],[46.53878,12.03289,2093,20833],[46.538,12.032,2100,21000],[46.537,12.03117,2099,21167],[46.536,12.03033,2098,21333],[46.535,12.0295,2098,21500],[46.534,12.02867,2097,21667],[46.533,12.02783,2096,21833],[46.532,12.027,2095,22000],[46.531,12.02617,2094,22167],[46.53,12.02533,2093,22333],[46.529,12.0245,2092,22500],[46.528,12.02367,2092,22667],[46.527,12.02283,2091,22833],[46.526,12.022,2090,23000],[46.5252,12.02138,2086,23181],[46.52439,12.02076,2082,23362],[46.52359,12.02014,2078,23544],[46.52279,12.01952,2074,23725],[46.52199,12.01889,2070,23906],[46.52119,12.01827,2066,24088],[46.52038,12.01765,2062,24269],[46.51958,12.01703,2058,24450],[46.51895,12.01794,2072,24621],[46.51832,12.01886,2087,24792],[46.51769,12.01977,2101,24962],[46.51705,12.02069,2115,25133],[46.51642,12.0216,2130,25304],[46.51579,12.02252,2144,25475],[46.51516,12.02343,2158,25646],[46.51453,12.02434,2173,25817],[46.51389,12.02526,2187,25988],[46.51326,12.02617,2201,26158],[46.51263,12.02709,2216,26329],[46.512,12.028,2230,26500],[46.51125,12.02892,2242,26667],[46.5105,12.02983,2255,26833],[46.50975,12.03075,2268,27000],[46.509,12.03167,2280,27167],[46.50825,12.03258,2292,27333],[46.5075,12.0335,2305,27500],[46.50675,12.03442,2318,27667],[46.506,12.03533,2330,27833],[46.50525,12.03625,2342,28000],[46.5045,12.03717,2355,28167],[46.50375,12.03808,2368,28333],[46.503,12.039,2380,28500],[46.50208,12.03975,2373,28667],[46.50117,12.0405,2367,28833],[46.50025,12.04125,2360,29000],[46.49933,12.042,2353,29167],[46.49842,12.04275,2347,29333],[46.4975,12.0435,2340,29500],[46.49658,12.04425,2333,29667],[46.49567,12.045,2327,29833],[46.49475,12.04575,2320,30000],[46.49383,12.0465,2313,30167],[46.49292,12.04725,2307,30333],[46.492,12.048,2300,30500],[46.49081,12.04873,2293,30675],[46.48963,12.04945,2286,30850],[46.48844,12.05018,2280,31025],[46.48726,12.05091,2273,31200],[46.48607,12.05163,2266,31375],[46.48489,12.05236,2260,31550],[46.48371,12.05308,2253,31725],[46.48252,12.05381,2246,31900],[46.48214,12.05516,2256,32075],[46.48177,12.05651,2265,32250],[46.48139,12.05786,2274,32425],[46.48101,12.05921,2284,32600],[46.48064,12.06056,2294,32775],[46.48026,12.0619,2303,32950],[46.47988,12.06325,2312,33125],[46.47951,12.0646,2322,33300],[46.47913,12.06595,2332,33475],[46.47875,12.0673,2341,33650],[46.47838,12.06865,2350,33825],[46.478,12.07,2360,34000],[46.47787,12.0712,2355,34167],[46.47773,12.0724,2349,34333],[46.4776,12.0736,2344,34500],[46.47747,12.0748,2339,34667],[46.47733,12.076,2333,34833],[46.4772,12.0772,2328,35000],[46.47707,12.0784,2323,35167],[46.47693,12.0796,2317,35333],[46.4768,12.0808,2312,35500],[46.47667,12.082,2307,35667],[46.47653,12.0832,2301,35833],[46.4764,12.0844,2296,36000],[46.47627,12.0856,2291,36167],[46.47613,12.0868,2285,36333],[46.476,12.088,2280,36500],[46.47633,12.08892,2269,36667],[46.47667,12.08983,2258,36833],[46.477,12.09075,2248,37000],[46.47733,12.09167,2237,37167],[46.47767,12.09258,2226,37333],[46.478,12.0935,2215,37500],[46.47833,12.09442,2204,37667],[46.47867,12.09533,2193,37833],[46.479,12.09625,2182,38000],[46.47933,12.09717,2172,38167],[46.47967,12.09808,2161,38333],[46.48,12.099,2150,38500],[46.48108,12.10014,2134,38668],[46.48215,12.10128,2118,38837],[46.48323,12.10243,2102,39005],[46.48431,12.10357,2085,39173],[46.48538,12.10471,2069,39342],[46.48646,12.10585,2053,39510],[46.48723,12.10639,2033,39676],[46.488,12.10694,2013,39842],[46.48877,12.10748,1992,40008],[46.48954,12.10802,1972,40174],[46.49031,12.10857,1952,40340],[46.49108,12.10911,1932,40506],[46.49185,12.10965,1912,40672],[46.49261,12.1102,1891,40838],[46.49338,12.11074,1871,41004],[46.49415,12.11128,1851,41170],[46.49492,12.11183,1831,41336],[46.49569,12.11237,1811,41502],[46.49646,12.11291,1790,41668],[46.49723,12.11346,1770,41834],[46.498,12.114,1750,42000],[46.49893,12.1144,1733,42167],[46.49987,12.1148,1717,42333],[46.5008,12.1152,1700,42500],[46.50173,12.1156,1683,42667],[46.50267,12.116,1667,42833],[46.5036,12.1164,1650,43000],[46.50453,12.1168,1633,43167],[46.50547,12.1172,1617,43333],[46.5064,12.1176,1600,43500],[46.50733,12.118,1583,43667],[46.50827,12.1184,1567,43833],[46.5092,12.1188,1550,44000],[46.51013,12.1192,1533,44167],[46.51107,12.1196,1517,44333],[46.512,12.12,1500,44500],[46.51333,12.12067,1481,44667],[46.51467,12.12133,1462,44833],[46.516,12.122,1443,45000],[46.51733,12.12267,1424,45167],[46.51867,12.12333,1406,45333],[46.52,12.124,1387,45500],[46.52133,12.12467,1368,45667],[46.52267,12.12533,1349,45833],[46.524,12.126,1330,46000],[46.52565,12.12648,1312,46198],[46.5273,12.12696,1293,46395],[46.52895,12.12744,1274,46592],[46.5306,12.12792,1256,46790],[46.53117,12.1286,1252,46958],[46.53173,12.12928,1249,47127],[46.5323,12.12996,1246,47295],[46.53287,12.13064,1242,47463],[46.53343,12.13132,1238,47632],[46.534,12.132,1235,47800],[46.53458,12.13283,1233,47965],[46.53516,12.13366,1230,48130],[46.53574,12.13449,1228,48295],[46.53633,12.13532,1226,48460],[46.53691,12.13615,1223,48625],[46.53749,12.13698,1221,48790]];
+
+let autoRefresh = false, autoTimer = null;
+let mapObjects = {}, chartObjects = {};
+
+function nearestGPXPoint(lat, lng){
+  let best=0, bestD=Infinity;
+  for(let i=0;i<GPX.length;i++){
+    const d=(GPX[i][0]-lat)**2+(GPX[i][1]-lng)**2;
+    if(d<bestD){bestD=d;best=i;}
+  }
+  return best;
+}
+
+function gpxPointAtKm(km){
+  const targetM = km*1000;
+  let best=0, bestD=Infinity;
+  for(let i=0;i<GPX.length;i++){
+    const d=Math.abs(GPX[i][3]-targetM);
+    if(d<bestD){bestD=d;best=i;}
+  }
+  return GPX[best];
+}
+
+// Stima posizione km interpolando tra ultimo passaggio e prossima previsione
+function estimateKm(runner){
+  if(!runner || !runner.passages || runner.passages.length===0) return 0;
+
+  // Mappa idpt -> km checkpoint
+  const cpKm = {};
+  CHECKPOINTS.forEach(c => cpKm[c.idpt] = c.km);
+
+  // Ultimo passaggio reale con orario valido
+  let lastPass = null;
+  for(const p of runner.passages){
+    if(p.ha && cpKm[p.idpt] !== undefined) lastPass = p;
+  }
+  if(!lastPass) return 0;
+
+  const lastKm = cpKm[lastPass.idpt];
+
+  // Se è arrivato (idpt 100), è al traguardo
+  if(lastPass.idpt === "100") return TOTAL_KM;
+
+  // Prossima previsione
+  let nextPrev = null;
+  if(runner.prev && runner.prev.length){
+    for(const pv of runner.prev){
+      if(pv.km && parseFloat(pv.km) > lastKm){ nextPrev = pv; break; }
+    }
+  }
+
+  const now = new Date();
+  const raceDate = "2026-06-26";
+
+  function parseTime(t){
+    if(!t) return null;
+    const clean = t.length===5 ? t+":00" : t;
+    return new Date(`${raceDate}T${clean}+02:00`);
+  }
+
+  const lastT = parseTime(lastPass.ha);
+  if(!nextPrev || !nextPrev.h){
+    return lastKm; // nessuna previsione, resta all'ultimo CP
+  }
+  const nextKm = parseFloat(nextPrev.km);
+  const nextT = parseTime(nextPrev.h);
+
+  if(now <= lastT) return lastKm;
+  if(now >= nextT) return nextKm;
+
+  const frac = (now - lastT) / (nextT - lastT);
+  return lastKm + (nextKm - lastKm) * frac;
+}
+
+function formatRaceTimer(){
+  const now = new Date();
+  if(now < RACE_START) return "--:--:--";
+  let s = Math.floor((now - RACE_START)/1000);
+  const h = Math.floor(s/3600); s -= h*3600;
+  const m = Math.floor(s/60); s -= m*60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+let timerInterval = setInterval(()=>{
+  document.querySelectorAll('[data-timer]').forEach(el=>{
+    el.textContent = formatRaceTimer();
+  });
+}, 1000);
+
+async function refreshAll(){
+  const btn = document.getElementById('refreshBtn');
+  const icon = document.getElementById('refreshIcon');
+  icon.style.display='inline-block';
+  btn.classList.add('loading');
+  document.getElementById('statusDot').className='status-dot loading';
+
+  try {
+    const r = await fetch('/api/livetrail');
+    const data = await r.json();
+    renderAll(data);
+    document.getElementById('statusDot').className='status-dot ok';
+    document.getElementById('lastUpdate').textContent = 'Ultimo aggiornamento: ' + new Date().toLocaleTimeString('it-IT');
+  } catch(e){
+    document.getElementById('statusDot').className='status-dot err';
+    console.error(e);
+  }
+  btn.classList.remove('loading');
+}
+
+function renderAll(data){
+  const container = document.getElementById('cardsContainer');
+  // Pulisci placeholder iniziale
+  if(container.querySelector('div[style*="80px"]')) container.innerHTML='';
+
+  ATHLETES.forEach(a => renderCard(a, data[a.doss]));
+}
+
+function renderCard(athlete, runner){
+  const container = document.getElementById('cardsContainer');
+  const cardId = 'card-'+athlete.doss;
+  let card = document.getElementById(cardId);
+  const isNew = !card;
+  if(isNew){ card=document.createElement('div'); card.id=cardId; card.className='athlete-card'; container.appendChild(card); }
+
+  const hasError = !runner || runner.error;
+  const code = runner?.state?.code;
+  const hasFinished = code === 'f' || (runner?.passages||[]).some(p=>p.idpt==="100" && p.ha);
+  const isDNF = code === 'a' || code === 'np';
+
+  card.className = 'athlete-card'+(hasFinished?' finished':isDNF?' dnf':'');
+
+  const km = estimateKm(runner);
+  const pct = Math.min(100, Math.round((km/TOTAL_KM)*100));
+  const pt = gpxPointAtKm(km);
+
+  // Stato
+  const statusHtml = hasFinished?`<span class="card-status status-done">✓ Arrivato</span>`:
+    isDNF?`<span class="card-status status-dnf">Ritirato</span>`:
+    (runner && runner.passages && runner.passages.length>0)?`<span class="card-status status-running">In gara</span>`:
+    `<span class="card-status status-wait">In attesa</span>`;
+
+  // Classifica
+  const clt = runner?.state?.clt;
+  const cltsex = runner?.state?.cltsex;
+  const cltcat = runner?.state?.cltcat;
+  let posHtml = "";
+  if(clt && clt !== "-"){
+    const posLabel = hasFinished ? "Posizione finale" : "Posizione";
+    posHtml = `<div class="stat">
+      <div class="stat-label">${posLabel}</div>
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <span style="font-size:22px;font-weight:900;color:${athlete.color}">#${clt}</span>
+        ${cltcat?`<span style="font-size:12px;color:var(--muted)">cat. ${cltcat}</span>`:''}
+      </div>
+    </div>`;
+  }
+
+  // Ultimo checkpoint
+  let lastCpName = "Partenza", lastCpTime = "";
+  if(runner && runner.passages){
+    for(const p of runner.passages){
+      if(p.ha){
+        const cp = CHECKPOINTS.find(c=>c.idpt===p.idpt);
+        if(cp){ lastCpName = cp.name; lastCpTime = p.ha; }
+      }
+    }
+  }
+
+  // Prossima previsione
+  let nextHtml = "";
+  if(runner && runner.prev && runner.prev.length && !hasFinished){
+    const next = runner.prev.find(pv => pv.km && parseFloat(pv.km) > km - 0.5);
+    if(next && next.h){
+      const cp = CHECKPOINTS.find(c=>c.idpt===next.idpt);
+      const cpName = cp ? cp.name : "prossimo punto";
+      nextHtml = `<div class="card-eta-row">
+        🔮 Previsto a <strong>${cpName}</strong> verso le <strong>${next.h.slice(0,5)}</strong>
+      </div>`;
+    }
+  }
+
+  const ele = Math.round(pt[2]);
+
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="card-bib" style="color:${athlete.color}">${athlete.doss}</div>
+      <div class="card-name-wrap">
+        <div class="card-name">${athlete.name}</div>
+        <div class="card-race">50K</div>
+      </div>
+      ${statusHtml}
+    </div>
+
+    <div class="card-pos-row">
+      <div class="pos-icon" style="background:${athlete.color}22;color:${athlete.color}">📍</div>
+      <div class="pos-text">
+        ${hasFinished?'Ha tagliato il traguardo':`Stimato al <strong>km ${km.toFixed(1)}</strong> · alt. ${ele}m`}
+        <div class="pos-sub">Ultimo rilevamento: ${lastCpName}${lastCpTime?' alle '+lastCpTime.slice(0,5):''}</div>
+      </div>
+    </div>
+
+    <div class="card-timer-row">
+      <span class="timer-icon">⏱️</span> Tempo in gara
+      <span class="timer-val" data-timer>${formatRaceTimer()}</span>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" style="width:${pct}%;background:${athlete.color}"></div>
+      </div>
+      <div class="progress-labels">
+        <span>${km.toFixed(1)} km</span>
+        <span>${pct}%</span>
+        <span>${TOTAL_KM} km</span>
+      </div>
+    </div>
+
+    ${posHtml ? `<div class="card-stats">${posHtml}</div>` : ''}
+    ${nextHtml}
+
+    <button class="map-toggle" onclick="toggleMap('${athlete.doss}')">
+      🗺️ Mappa + profilo altimetrico <span class="chevron">▾</span>
+    </button>
+    <div class="map-container" id="mapwrap-${athlete.doss}" style="display:none">
+      <div class="map" id="map-${athlete.doss}"></div>
+      <div class="elev-wrap">
+        <div class="elev-label">Profilo altimetrico · quota lungo il percorso</div>
+        <div style="position:relative;height:200px;"><canvas id="chart-${athlete.doss}"></canvas></div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleMap(doss){
+  const wrap = document.getElementById('mapwrap-'+doss);
+  const isOpen = wrap.style.display !== 'none';
+  if(isOpen){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+
+  const athlete = ATHLETES.find(a=>a.doss===doss);
+  if(!mapObjects[doss]){
+    initMap(doss, athlete);
+    initChart(doss, athlete);
+  }
+}
+
+function initMap(doss, athlete){
+  const mapId = 'map-'+doss;
+  const latlngs = GPX.map(p=>[p[0],p[1]]);
+  const mid = latlngs[Math.floor(latlngs.length/2)];
+  const map = L.map(mapId).setView(mid, 13);
+
+  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,opacity:0.42}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:19,opacity:0.45}).addTo(map);
+
+  // Tracciato
+  L.polyline(latlngs,{color:athlete.color,weight:10,opacity:0.18}).addTo(map);
+  L.polyline(latlngs,{color:athlete.color,weight:4.5,opacity:1.0}).addTo(map);
+
+  map.fitBounds(latlngs);
+
+  // Checkpoint markers
+  CHECKPOINTS.forEach(cp => {
+    const cpIcon = L.divIcon({
+      html:`<div style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid ${athlete.color};box-shadow:0 0 4px rgba(0,0,0,0.5)"></div>`,
+      iconSize:[10,10], iconAnchor:[5,5], className:''
+    });
+    L.marker([cp.lat,cp.lng],{icon:cpIcon}).addTo(map)
+      .bindTooltip(cp.name,{permanent:false,direction:'top',offset:[0,-8],className:'cp-tooltip'})
+      .bindPopup(`<div class="popup-bib" style="color:${athlete.color}">📍 ${cp.name}</div>
+        <div class="popup-row">km <strong>${cp.km}</strong></div>
+        <div class="popup-row">⛰️ <strong>${cp.ele}m</strong> slm</div>`);
+  });
+
+  // Puntino posizione stimata
+  const km = estimateKm(window._lastData ? window._lastData[doss] : null);
+  const pt = gpxPointAtKm(km);
+  const liveIcon = L.divIcon({
+    html:`<div style="width:18px;height:18px;border-radius:50%;background:${athlete.color};border:3px solid #fff;box-shadow:0 0 10px ${athlete.color}"></div>`,
+    iconSize:[18,18], iconAnchor:[9,9], className:''
+  });
+  const liveMarker = L.marker([pt[0],pt[1]],{icon:liveIcon}).addTo(map)
+    .bindPopup(`<div class="popup-bib" style="color:${athlete.color}">${athlete.name}</div>
+      <div class="popup-row">Stimato al km <strong>${km.toFixed(1)}</strong></div>`);
+
+  // Hover sul tracciato
+  const hoverDot = L.circleMarker([latlngs[0][0],latlngs[0][1]],{
+    radius:6,color:'#fff',fillColor:athlete.color,fillOpacity:0,opacity:0,weight:2
+  }).addTo(map);
+
+  map.on('mousemove', function(e){
+    let bestI=0,bestD=Infinity;
+    for(let i=0;i<GPX.length;i++){
+      const d=map.distance(e.latlng, L.latLng(GPX[i][0],GPX[i][1]));
+      if(d<bestD){bestD=d;bestI=i;}
+    }
+    if(bestD>600){
+      hoverDot.setStyle({opacity:0,fillOpacity:0});
+      hoverDot.unbindTooltip();
+      const ch=chartObjects['chart-'+doss];
+      if(ch){ch._hoverIdx=null;ch.update('none');}
+      return;
+    }
+    const pt=GPX[bestI];
+    hoverDot.setLatLng([pt[0],pt[1]]);
+    hoverDot.setStyle({opacity:1,fillOpacity:0.95});
+    hoverDot.bindTooltip(`${(pt[3]/1000).toFixed(1)} km · ${Math.round(pt[2])}m`,
+      {permanent:true,direction:'top',offset:[0,-10],className:'cp-tooltip'}).openTooltip();
+    const ch=chartObjects['chart-'+doss];
+    if(ch){
+      const km=pt[3]/1000;
+      let ci=0,cd=Infinity;
+      ch._sampledKm.forEach((sk,i)=>{const diff=Math.abs(sk-km);if(diff<cd){cd=diff;ci=i;}});
+      ch._hoverIdx=ci; ch.update('none');
+    }
+  });
+  map.on('mouseout', function(){
+    hoverDot.setStyle({opacity:0,fillOpacity:0});
+    hoverDot.unbindTooltip();
+    const ch=chartObjects['chart-'+doss];
+    if(ch){ch._hoverIdx=null;ch.update('none');}
+  });
+
+  mapObjects[doss] = {map, liveMarker};
+  setTimeout(()=>map.invalidateSize(), 100);
+}
+
+function initChart(doss, athlete){
+  const canvas = document.getElementById('chart-'+doss);
+  const step = Math.max(1, Math.floor(GPX.length/200));
+  const sampled = [];
+  for(let i=0;i<GPX.length;i+=step) sampled.push(GPX[i]);
+  if(sampled[sampled.length-1]!==GPX[GPX.length-1]) sampled.push(GPX[GPX.length-1]);
+
+  const labels = sampled.map(p=>(p[3]/1000).toFixed(1));
+  const eles = sampled.map(p=>p[2]);
+  const minE = Math.min(...eles), maxE = Math.max(...eles);
+
+  // Plugin: linee checkpoint + puntino hover
+  const elevPlugin = {
+    id:'elevHover',
+    afterDraw(ch){
+      const ctx=ch.ctx;
+      const meta=ch.getDatasetMeta(0);
+      if(!meta||!meta.data||!meta.data.length) return;
+      const ySc=ch.scales.y;
+      if(!ySc) return;
+
+      // Linee checkpoint
+      if(ch._cpLines && ch._sampledKm && ch._sampledKm.length){
+        ch._cpLines.forEach(cp=>{
+          let xi=0,minDiff=Infinity;
+          ch._sampledKm.forEach((sk,i)=>{const diff=Math.abs(sk-cp.km);if(diff<minDiff){minDiff=diff;xi=i;}});
+          const pt=meta.data[xi];
+          if(!pt) return;
+          ctx.save();
+          ctx.beginPath();ctx.moveTo(pt.x,ySc.top);ctx.lineTo(pt.x,ySc.bottom);
+          ctx.strokeStyle='rgba(255,255,255,0.22)';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='bold 9px Inter,sans-serif';ctx.textAlign='center';
+          ctx.fillText(cp.name.replace('Passo ','').replace('Croda da Lago','Croda'), pt.x, ySc.top+9);
+          ctx.restore();
+        });
+      }
+
+      // Puntino hover
+      if(ch._hoverIdx==null) return;
+      const hpt=meta.data[ch._hoverIdx];
+      if(!hpt) return;
+      ctx.save();
+      ctx.beginPath();ctx.arc(hpt.x,hpt.y,7,0,2*Math.PI);ctx.fillStyle='#fff';ctx.fill();
+      ctx.beginPath();ctx.arc(hpt.x,hpt.y,5,0,2*Math.PI);ctx.fillStyle=athlete.color;ctx.fill();
+      ctx.restore();
+    }
+  };
+
+  const chart = new Chart(canvas, {
+    type:'line',
+    plugins:[elevPlugin],
+    data:{
+      labels,
+      datasets:[{
+        data:eles,
+        borderColor:athlete.color,
+        borderWidth:2,
+        fill:true,
+        backgroundColor:athlete.color+'22',
+        pointRadius:0,
+        tension:0.3,
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>`km ${ctx[0].label}`,label:ctx=>`${Math.round(ctx.raw)}m slm`}}},
+      scales:{
+        x:{ticks:{color:'#7d8590',font:{size:9},maxTicksLimit:8},grid:{color:'rgba(255,255,255,0.05)'},title:{display:true,text:'km',color:'#7d8590',font:{size:9}}},
+        y:{ticks:{color:'#7d8590',font:{size:9},maxTicksLimit:5,callback:v=>v+'m'},grid:{color:'rgba(255,255,255,0.07)'},suggestedMin:minE-50,suggestedMax:maxE+50}
+      }
+    }
+  });
+
+  chart._sampledKm = sampled.map(p=>p[3]/1000);
+  chart._cpLines = CHECKPOINTS.filter(c=>c.km>0 && c.km<TOTAL_KM);
+  chart._hoverIdx = null;
+  chartObjects['chart-'+doss] = chart;
+}
+
+function toggleAuto(){
+  autoRefresh = !autoRefresh;
+  document.getElementById('autoToggle').className = 'toggle'+(autoRefresh?' on':'');
+  document.getElementById('autoLabel').textContent = autoRefresh?'Auto ✓':'Auto';
+  if(autoTimer) clearInterval(autoTimer);
+  if(autoRefresh) autoTimer = setInterval(refreshAll, 2*60*1000); // 2 minuti
+}
+
+// Salva i dati per il marker live, e refresh iniziale
+const origRender = renderAll;
+renderAll = function(data){ window._lastData = data; origRender(data); };
+
+refreshAll();
+</script>
+</body>
+</html>
