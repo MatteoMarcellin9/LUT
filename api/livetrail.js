@@ -1,90 +1,61 @@
-// Proxy + parser per LiveTrail (Lavaredo 50K)
+const UTMB_BASE = "https://utmblive-api.utmb.world";
+const TENANCY   = { year: "2026", tenant: "lavaredo" };
+
 const ATHLETES = {
-  "4310": { name: "Sergio Marcellin",  rech: "Sergio Marcellin" },
-  "4740": { name: "Seraina Rizzardini", rech: "Seraina Rizzardini" },
-  "4873": { name: "Fabio Perencin",    rech: "Fabio Perencin" },
+  "4310": "Sergio+Marcellin",
+  "4740": "Seraina+Rizzardini",
+  "4873": "Fabio+Perencin",
 };
 
-function parseField(str, field) {
-  const m = str.match(new RegExp(`${field}="([^"]*)"`));
-  return m ? m[1] : null;
+function utmbHeaders() {
+  return {
+    "content-type": "application/json",
+    "X-Tenant": `${TENANCY.tenant}_${TENANCY.year}`,
+    "User-Agent": "Mozilla/5.0",
+  };
 }
 
 function parseRunner(xml, doss) {
-  // Isola la fiche giusta
   const fiches = xml.split('<fiche ');
-  let fiche = null;
   for (let i = 1; i < fiches.length; i++) {
-    if (fiches[i].includes(`doss="${doss}"`)) { fiche = fiches[i]; break; }
+    if (!fiches[i].includes(`doss="${doss}"`)) continue;
+    const f = fiches[i];
+    const field = (k) => { const m = f.match(new RegExp(`${k}="([^"]*)"`)); return m ? m[1] : null; };
+    const out = { doss, passages: [], prev: [], state: {} };
+    const sm = f.match(/<state ([^/]+)\/>/);
+    if (sm) { out.state.code=field.call({},sm[1])||null; for(const k of ['clt','cltsex','cltcat','code']) { const m=sm[1].match(new RegExp(`${k}="([^"]*)"`)); if(m) out.state[k]=m[1]; } }
+    const passIdx=f.indexOf('<pass>'), passEnd=f.indexOf('</pass>');
+    if(passIdx>=0&&passEnd>passIdx){ const block=f.slice(passIdx,passEnd); (block.match(/<e ([^>]+?)>/g)||[]).forEach(e=>{out.passages.push({idpt:e.match(/idpt="([^"]*)"/)?.[1],ha:e.match(/ha="([^"]*)"/)?.[1]||e.match(/hd="([^"]*)"/)?.[1],tps:e.match(/tps="([^"]*)"/)?.[1],clt:e.match(/clt="([^"]*)"/)?.[1]});}); }
+    const prevIdx=f.indexOf('<prev'), prevEnd=f.indexOf('</prev>');
+    if(prevIdx>=0&&prevEnd>prevIdx){ const block=f.slice(prevIdx,prevEnd); (block.match(/<e ([^>]+?)\/>/g)||[]).forEach(e=>{out.prev.push({idpt:e.match(/idpt="([^"]*)"/)?.[1],h:e.match(/h="([^"]*)"/)?.[1],km:e.match(/km="([^"]*)"/)?.[1]});}); }
+    return out;
   }
-  if (!fiche) return null;
-
-  const out = { doss, passages: [], prev: [], state: {} };
-
-  // Stato
-  const stateM = fiche.match(/<state ([^/]+)\/>/);
-  if (stateM) {
-    out.state.code = parseField(stateM[1], "code");
-    out.state.clt  = parseField(stateM[1], "clt");
-    out.state.cltsex = parseField(stateM[1], "cltsex");
-    out.state.cltcat = parseField(stateM[1], "cltcat");
-  }
-
-  // Passaggi reali
-  const passIdx = fiche.indexOf('<pass>');
-  const passEnd = fiche.indexOf('</pass>');
-  if (passIdx >= 0 && passEnd > passIdx) {
-    const block = fiche.slice(passIdx, passEnd);
-    const events = block.match(/<e ([^>]+?)>/g) || [];
-    for (const e of events) {
-      out.passages.push({
-        idpt: parseField(e, "idpt"),
-        ha: parseField(e, "ha") || parseField(e, "hd"),
-        tps: parseField(e, "tps"),
-        clt: parseField(e, "clt"),
-      });
-    }
-  }
-
-  // Previsioni
-  const prevIdx = fiche.indexOf('<prev');
-  const prevEnd = fiche.indexOf('</prev>');
-  if (prevIdx >= 0 && prevEnd > prevIdx) {
-    const block = fiche.slice(prevIdx, prevEnd);
-    const events = block.match(/<e ([^>]+?)\/>/g) || [];
-    for (const e of events) {
-      out.prev.push({
-        idpt: parseField(e, "idpt"),
-        h: parseField(e, "h"),
-        km: parseField(e, "km"),
-      });
-    }
-  }
-
-  return out;
+  return null;
 }
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const { doss } = req.query;
-
-  // Recupera dati per un singolo atleta o tutti
-  const targets = doss ? [doss] : Object.keys(ATHLETES);
   const results = {};
-
-  await Promise.all(targets.map(async (d) => {
-    const athlete = ATHLETES[d];
-    if (!athlete) return;
+  await Promise.all(Object.entries(ATHLETES).map(async ([doss, rech]) => {
     try {
-      const url = `https://lavaredo.livetrail.net/coureur.php?rech=${encodeURIComponent(athlete.rech)}`;
-      const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-      if (!r.ok) { results[d] = { error: r.status }; return; }
-      const xml = await r.text();
-      const parsed = parseRunner(xml, d);
-      results[d] = parsed || { error: "not found" };
-    } catch (e) {
-      results[d] = { error: e.message };
+      // LiveTrail per passaggi checkpoint
+      const ltUrl = `https://lavaredo.livetrail.net/coureur.php?rech=${rech}`;
+      const ltR = await fetch(ltUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+      const xml = await ltR.text();
+      const lt = parseRunner(xml, doss);
+
+      // UTMB per dati aggiuntivi (ranking, foto)
+      const utmbR = await fetch(`${UTMB_BASE}/runners/${doss}?locale=it`, { headers: utmbHeaders() });
+      let utmb = null;
+      if (utmbR.ok) utmb = await utmbR.json();
+
+      results[doss] = {
+        ...(lt || {}),
+        utmb: utmb?.resume || null,
+      };
+    } catch(e) {
+      results[doss] = { error: e.message };
     }
   }));
 
